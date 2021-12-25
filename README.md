@@ -25,6 +25,7 @@ To get your API key for todoist, just log into your account in the browser and h
 The only other bit of config to change is the `PROJECT_NAME` in [code.py](code.py), this program only displays tasks from a single project, the name of which should be defined in `PROJECT_NAME`.
 
 ## Usage
+![todo-buddy](https://user-images.githubusercontent.com/1926537/147387648-4a6937ef-ab33-4489-84de-0a84caf9a862.jpg)
 
 Copy `code.py` and `secrets.py` onto your microcontroller, create a `lib` directory on the microcontroller and copy over the dependencies:
 * adafruit_requests
