@@ -97,7 +97,7 @@ if project_id is None:
 # set up task carousel
 page_turned = 0
 tasks_refreshed = 0
-awoke_at = time.time()
+idle_since = time.time()
 task_index = 0
 tasks_response = None
 tasks = None
@@ -129,16 +129,41 @@ splash.append(inner_sprite)
 def refresh_tasks():
     global tasks
     global tasks_refreshed
-    new_tasks_response = requests.get(
+    overdue_tasks_response = requests.get(
         get_endpoint(
             "tasks",
             {
                 "project_id": project_id,
+                "filter": "overdue",
             },
         ),
         headers=headers,
     )
-    tasks = new_tasks_response.json()
+    overdue_tasks = overdue_tasks_response.json()
+    today_tasks_response = requests.get(
+        get_endpoint(
+            "tasks",
+            {
+                "project_id": project_id,
+                "filter": "today",
+            },
+        ),
+        headers=headers,
+    )
+    today_tasks = today_tasks_response.json()
+    undated_tasks_response = requests.get(
+        get_endpoint(
+            "tasks",
+            {
+                "project_id": project_id,
+                "filter": "no date",
+            },
+        ),
+        headers=headers,
+    )
+    undated_tasks = undated_tasks_response.json()
+    tasks = overdue_tasks + undated_tasks + today_tasks
+    print(tasks)
     tasks_refreshed = time.time()
 
 
@@ -205,10 +230,13 @@ while True:
     switch_b.update()
     switch_c.update()
     if switch_a.fell:
+        idle_since = time.time()
         update_display_task((task_index - 1) % len(tasks))
     if switch_b.fell:
+        idle_since = time.time()
         complete_task()
     if switch_c.fell:
+        idle_since = time.time()
         update_display_task((task_index + 1) % len(tasks))
 
     # handler data and display updates
@@ -216,7 +244,7 @@ while True:
         refresh_tasks()
     if page_turned + config["rotate_interval"] < time.time():
         update_display_task((task_index + 1) % len(tasks))
-    if config["auto_sleep"] > 0 and awoke_at + config["auto_sleep"] < time.time():
+    if config["auto_sleep"] > 0 and idle_since + config["auto_sleep"] < time.time():
         deep_sleep()
     if (len(task_name.text) * 6) > (WIDTH - 8):
         scroll()
