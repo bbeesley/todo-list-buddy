@@ -1,10 +1,10 @@
 import ssl
 import time
+import alarm
 import adafruit_requests
 import board
 import digitalio
 import displayio
-import rtc
 import socketpool
 import terminalio
 import wifi
@@ -12,8 +12,7 @@ import adafruit_displayio_sh1107
 from adafruit_display_text import label
 from adafruit_datetime import datetime
 from adafruit_debouncer import Debouncer
-
-PROJECT_NAME = "To Do"
+from config import config
 
 # set up buttons
 pin_a = digitalio.DigitalInOut(board.D9)
@@ -75,7 +74,7 @@ BASE_URL = "https://api.todoist.com/rest/v1"
 
 def get_endpoint(path: str, query: dict = None):
     querystring = ""
-    if query is None:
+    if query is not None:
         querystring += "?"
         for key in query.keys():
             querystring += str(key) + "=" + str(query[key]) + "&"
@@ -88,23 +87,17 @@ projects_response = requests.get(get_endpoint("projects"), headers=headers)
 projects = projects_response.json()
 project_id = None
 for project in projects:
-    if project["name"] == PROJECT_NAME:
+    if project["name"] == config["project_name"]:
         project_id = project["id"]
         break
 if project_id is None:
     print(projects)
     raise RuntimeError("missing project")
 
-# set up time
-TIME_ENDPOINT = "http://worldclockapi.com/api/json/utc/now"
-time_response = requests.get(TIME_ENDPOINT)
-time_data = time_response.json()
-now = datetime.fromisoformat(time_data["currentDateTime"].replace("Z", ""))
-rtc.RTC().datetime = now.timetuple()
-
 # set up task carousel
 page_turned = 0
 tasks_refreshed = 0
+awoke_at = time.time()
 task_index = 0
 tasks_response = None
 tasks = None
@@ -184,6 +177,28 @@ def fix():
         task_name.x = 8
 
 
+def deep_sleep():
+    pin_a.deinit()
+    goodbye = displayio.Group()
+    idle_label = label.Label(
+        terminalio.FONT,
+        text="idle for {} seconds".format(config["auto_sleep"]),
+        color=0xFFFFFF,
+        x=8,
+        y=16,
+        scale=1,
+    )
+    goodbye_label = label.Label(
+        terminalio.FONT, text="going to sleep", color=0xFFFFFF, x=8, y=32, scale=1
+    )
+    goodbye.append(idle_label)
+    goodbye.append(goodbye_label)
+    display.show(goodbye)
+    time.sleep(3)
+    wake_on_pin = alarm.pin.PinAlarm(pin=board.D9, value=False, pull=True)
+    alarm.exit_and_deep_sleep_until_alarms(wake_on_pin)
+
+
 while True:
     # handler button presses
     switch_a.update()
@@ -197,10 +212,12 @@ while True:
         update_display_task((task_index + 1) % len(tasks))
 
     # handler data and display updates
-    if tasks_refreshed + 60 < time.time():
+    if tasks_refreshed + config["poll_interval"] < time.time():
         refresh_tasks()
-    if page_turned + 10 < time.time():
+    if page_turned + config["rotate_interval"] < time.time():
         update_display_task((task_index + 1) % len(tasks))
+    if config["auto_sleep"] > 0 and awoke_at + config["auto_sleep"] < time.time():
+        deep_sleep()
     if (len(task_name.text) * 6) > (WIDTH - 8):
         scroll()
     else:

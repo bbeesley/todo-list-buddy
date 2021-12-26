@@ -22,7 +22,16 @@ secrets = {
 
 To get your API key for todoist, just log into your account in the browser and head to [your integration settings](https://todoist.com/app/settings/integrations). Scroll to the bottom and you'll find your API key.
 
-The only other bit of config to change is the `PROJECT_NAME` in [code.py](code.py), this program only displays tasks from a single project, the name of which should be defined in `PROJECT_NAME`.
+The other config values are set in [config.py](config.py):
+
+```python
+config = {
+    "project_name": "To Do", # the name of the todoist project to work with
+    "poll_interval": 60, # how often to update the task list from the todoist api
+    "rotate_interval": 10, # how long to pause on displaying each task in the list
+    "auto_sleep": 900, # how long, in seconds, of inactivity to allow before sending the device to sleep. Set to zero to disable auto sleep.
+}
+```
 
 ## Usage
 ![todo-buddy](https://user-images.githubusercontent.com/1926537/147387648-4a6937ef-ab33-4489-84de-0a84caf9a862.jpg)
@@ -38,3 +47,5 @@ You can get them all in the [Adafruit CircuitPython Bundle](https://circuitpytho
 When the microcontroller starts up, you should see the checkmark screen splash, then your tasks should load up. Once task is displayed at a time, along with when it was added to the list. Every 10 seconds the display is cycled to show the next task. Every 60 seconds the task list is updated to fetch any newly added tasks.
 
 You can use button A and button C to navigate through the task list, pressing button B will mark the current task as complete and refresh the list.
+
+When the device has been idle for the number of seconds defined in the `auto_sleep` config value it will go into deep sleep mode. Press button A to wake the device back up.
