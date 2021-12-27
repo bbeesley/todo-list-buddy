@@ -219,6 +219,7 @@ def deep_sleep():
     goodbye.append(idle_label)
     goodbye.append(goodbye_label)
     display.show(goodbye)
+    display.sleep()
     time.sleep(3)
     wake_on_pin = alarm.pin.PinAlarm(pin=board.D9, value=False, pull=True)
     alarm.exit_and_deep_sleep_until_alarms(wake_on_pin)
