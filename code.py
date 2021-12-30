@@ -10,9 +10,11 @@ import terminalio
 import wifi
 import adafruit_displayio_sh1107
 from adafruit_display_text import label
-from adafruit_datetime import datetime
 from adafruit_debouncer import Debouncer
 from config import config
+from task_view import TaskView
+
+import sleep_dictionary
 
 # set up buttons
 pin_a = digitalio.DigitalInOut(board.D9)
@@ -30,15 +32,7 @@ switch_c = Debouncer(pin_c)
 
 requests = None
 pool = None
-
-# set up wifi
-try:
-    from secrets import secrets
-except ImportError:
-    print("WiFi secrets are kept in secrets.py, please add them there!")
-    raise
-wifi.radio.connect(secrets["ssid"], secrets["password"])
-print("Connected to %s!" % secrets["ssid"])
+saved_task = None
 
 # set up display
 displayio.release_displays()
@@ -47,18 +41,39 @@ display_bus = displayio.I2CDisplay(i2c, device_address=0x3C)
 
 WIDTH = 128
 HEIGHT = 64
-BORDER = 2
 
 display = adafruit_displayio_sh1107.SH1107(
     display_bus, width=WIDTH, height=HEIGHT, rotation=0
 )
+
+# fast wake if possible
+task_view = TaskView(width=WIDTH, height=HEIGHT, rotation=0)
+
+if alarm.wake_alarm:
+    try:
+        saved_task = sleep_dictionary.load()
+        task_view.task = saved_task
+        task_view.update()
+        display.show(task_view.group)
+    # pylint: disable=broad-except
+    except Exception as e:
+        print(e)
+
+# set up wifi
+try:
+    from secrets import secrets
+except ImportError:
+    print("WiFi secrets are kept in secrets.py, please add them there!")
+    raise
+wifi.radio.connect(secrets["ssid"], secrets["password"])
 
 # set up checkmark image
 bitmap = displayio.OnDiskBitmap("/checkmark.bmp")
 tile_grid = displayio.TileGrid(bitmap, pixel_shader=bitmap.pixel_shader)
 checkmark_group = displayio.Group()
 checkmark_group.append(tile_grid)
-display.show(checkmark_group)
+if saved_task is None:
+    display.show(checkmark_group)
 
 # set up request lib
 pool = socketpool.SocketPool(wifi.radio)
@@ -96,34 +111,11 @@ if project_id is None:
 
 # set up task carousel
 page_turned = 0
+task_index = 0
 tasks_refreshed = 0
 idle_since = time.time()
-task_index = 0
 tasks_response = None
 tasks = None
-splash = displayio.Group()
-display.show(splash)
-task_label = label.Label(
-    terminalio.FONT, text="task:", color=0xFFFFFF, x=0, y=8, scale=1
-)
-splash.append(task_label)
-task_name = label.Label(terminalio.FONT, text="---", color=0xFFFFFF, x=8, y=24, scale=1)
-splash.append(task_name)
-task_added_label = label.Label(
-    terminalio.FONT, text="added:", color=0xFFFFFF, x=0, y=40, scale=1
-)
-splash.append(task_added_label)
-task_added = label.Label(
-    terminalio.FONT, text="---", color=0xFFFFFF, x=8, y=54, scale=1
-)
-splash.append(task_added)
-
-# block out start or task label
-block_bitmap = displayio.Bitmap(8, 16, 1)
-block_palette = displayio.Palette(1)
-block_palette[0] = 0x000000  # Black
-inner_sprite = displayio.TileGrid(block_bitmap, pixel_shader=block_palette, x=0, y=16)
-splash.append(inner_sprite)
 
 
 def refresh_tasks():
@@ -163,7 +155,6 @@ def refresh_tasks():
     )
     undated_tasks = undated_tasks_response.json()
     tasks = overdue_tasks + undated_tasks + today_tasks
-    print(tasks)
     tasks_refreshed = time.time()
 
 
@@ -172,10 +163,9 @@ def update_display_task(ix: int):
     global task_index
     page_turned = time.time()
     task_index = ix
-    fix()
-    task_name.text = tasks[task_index]["content"]
-    created = datetime.fromisoformat(tasks[task_index]["created"].replace("Z", ""))
-    task_added.text = created.ctime()
+    task_view.task = tasks[task_index]
+    task_view.update()
+    display.show(task_view.group)
 
 
 def complete_task():
@@ -185,24 +175,13 @@ def complete_task():
     )
     display.show(checkmark_group)
     time.sleep(2)
-    display.show(splash)
-    refresh_tasks()
+    display.show(task_view.group)
     update_display_task((task_index + 1) % len(tasks))
-
-
-def scroll():
-    task_name.x = task_name.x - 1
-    line_width = task_name.bounding_box[2]
-    if task_name.x < -line_width:
-        task_name.x = display.width
-
-
-def fix():
-    if task_name.x != 8:
-        task_name.x = 8
+    refresh_tasks()
 
 
 def deep_sleep():
+    sleep_dictionary.save(tasks[task_index])
     pin_a.deinit()
     goodbye = displayio.Group()
     idle_label = label.Label(
@@ -219,35 +198,32 @@ def deep_sleep():
     goodbye.append(idle_label)
     goodbye.append(goodbye_label)
     display.show(goodbye)
-    display.sleep()
     time.sleep(3)
+    display.sleep()
     wake_on_pin = alarm.pin.PinAlarm(pin=board.D9, value=False, pull=True)
     alarm.exit_and_deep_sleep_until_alarms(wake_on_pin)
 
 
 while True:
+    t = time.time()
     # handler button presses
     switch_a.update()
     switch_b.update()
     switch_c.update()
     if switch_a.fell:
-        idle_since = time.time()
+        idle_since = t
         update_display_task((task_index - 1) % len(tasks))
     if switch_b.fell:
-        idle_since = time.time()
+        idle_since = t
         complete_task()
     if switch_c.fell:
-        idle_since = time.time()
+        idle_since = t
         update_display_task((task_index + 1) % len(tasks))
 
     # handler data and display updates
-    if tasks_refreshed + config["poll_interval"] < time.time():
+    if tasks_refreshed + config["poll_interval"] < t:
         refresh_tasks()
-    if page_turned + config["rotate_interval"] < time.time():
+    if page_turned + config["rotate_interval"] < t:
         update_display_task((task_index + 1) % len(tasks))
-    if config["auto_sleep"] > 0 and idle_since + config["auto_sleep"] < time.time():
+    if config["auto_sleep"] > 0 and idle_since + config["auto_sleep"] < t:
         deep_sleep()
-    if (len(task_name.text) * 6) > (WIDTH - 8):
-        scroll()
-    else:
-        fix()
